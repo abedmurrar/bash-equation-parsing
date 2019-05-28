@@ -1,0 +1,2 @@
+2017-05-23__10:20:03 file name file_1@#$ has special characters and will not be parsed
+2017-05-23__10:20:03 file_4 is empty

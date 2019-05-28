@@ -1,0 +1,204 @@
+#!/bin/bash
+
+#global variables{
+FILES_NUMBER=0
+LOG_FILE="log.txt"
+MAX_EQUATIONS=0
+declare -a AVERAGES
+declare -a FILES_ARRAY
+declare -a FAILED
+red='\033[0;31m'
+green='\033[0;32m'
+blue='\033[0;34m'
+reset='\033[0m'
+
+#}
+
+instruction_file(){			
+	i=0
+	while read -r line; do
+		if [ $i -eq "0" ]; then #if it's first line
+			FILES_NUMBER=$line 
+		else
+			FILES_ARRAY[$(($i - 1 ))]=$line #add file name to the array
+		fi
+		if [ $i -eq $FILES_NUMBER ]; then
+			break
+		fi
+		let i=i+1 #increment i
+		
+	done < $1 #argument passed is the file name
+}
+
+parse_file(){ 
+# this function is to catch any error in the file
+
+	# 1)file name may have special characters
+	check_name=`echo $1 | grep -P '[^a-zA-Z0-9_]' -o | wc -c`
+	if [ $check_name -ne "0" ]; then
+		FAILED[${#FAILED[@]}]=$1
+		echo "`date +%Y-%m-%d__%H:%M:%S` file name $1 has special characters and will not be parsed">> $LOG_FILE
+		return
+	fi
+
+	# 2)file may be empty
+	if [ -s $1 ]; then #not empty
+		
+		# 3)file may have invalid characters
+		NUM_OF_ERROR_LINES=`grep '[^-*/()+0-9]' $1 | wc -l` #lines containing characters that are not equation characters
+		if [ $NUM_OF_ERROR_LINES -ne "0" ]; then 
+			FAILED[${#FAILED[@]}]=$1
+			echo "`date +%Y-%m-%d__%H:%M:%S` $1 contains invalid equations">> $LOG_FILE # invalid equations
+		else # if no error lines
+			while read -r line; do
+				# 4)file may have not equal parentheses
+				opened=`echo $line | tr -dc '(' | wc -c`
+				closed=`echo $line | tr -dc ')' | wc -c`
+				if [ $opened -ne $closed ]; then # check each equation if closed brackets equal opened brackets
+					FAILED[${#FAILED[@]}]=$1
+					echo "`date +%Y-%m-%d__%H:%M:%S` $1 contains equations with closed brackets not equal opened brackets">> $LOG_FILE
+					return # if they're not equal then return from function
+				fi
+			done < $1
+			# if none of the above was found in the file then compute its equations
+			calculate_file $1
+		fi # end if error lines != 0
+	else # if empty
+		FAILED[${#FAILED[@]}]=$1
+		echo "`date +%Y-%m-%d__%H:%M:%S` $1 is empty">> $LOG_FILE # empty file
+	fi # end if file is not empty
+}
+
+calculate_file(){
+	EQUATIONS_NUM=$(wc -l < $1)
+	if [[ $EQUATIONS_NUM -gt $MAX_EQUATIONS ]]; then
+		MAX_EQUATIONS=$EQUATIONS_NUM
+	fi
+		
+
+	computed_file=`echo "$1""_computed"`
+	# create a file name with the old file name +"_computed"
+	while read -r equation; do
+		result=$(($equation)) # find the result
+		echo $result >> $computed_file # store it in the file
+	done < $1
+	#add the computed file to the computed files array
+}
+
+
+
+##########******###########
+##########*MAIN*###########
+##########******###########
+echo "Abed Al Rahman Murrar - 1140155"
+instruction_file ins_file
+for file in "${FILES_ARRAY[@]}"
+do
+	if [ -e $file ]; then
+		parse_file $file
+	else
+		FAILED[${#FAILED[@]}]=$1
+		echo "`date +%Y-%m-%d__%H:%M:%S` $file does not exist">> $LOG_FILE # invalid file
+	fi
+done
+
+#header
+x="File"
+for ((i=1;i<=MAX_EQUATIONS;i++))
+do
+	 x+=",Column$i"
+done
+echo $x > test.csv
+
+#results
+for file in "${FILES_ARRAY[@]}"
+do
+	computed=$file"_computed"
+	if [ -e $computed ]; then
+		text=$file
+		while read -r result; do
+			text+=",$result"
+		done < $computed
+		echo $text >> test.csv
+	else
+		continue
+	fi
+done
+
+
+avg_text="Average"
+max_text="Max"
+min_text="Min"
+for((i=2;i<=$MAX_EQUATIONS+1;i++))
+do
+	SUM=0
+	count=0
+	max=0
+	col=`cut -d ',' -f $i test.csv`
+	for value in $col
+	do
+		check_val=`echo $value | grep -P '[^-0-9]' -o  | wc -c`
+		if [ $check_val -eq "0" ]; then
+			if [ $value -gt $max ]; then
+				let max=value
+			fi
+			if [ $count -eq "0" ]; then
+				let min=value
+			fi
+			if [ $value -lt $max ]; then
+				let min=value
+			fi
+			let SUM=SUM+value
+			let count=count+1
+		else
+			continue
+		fi
+	done
+	let avg=SUM/count
+	AVERAGES[${#AVERAGES[@]}]=$avg
+	avg_text+=","$avg
+	max_text+=","$max
+	min_text+=","$min
+done
+
+echo $avg_text >> test.csv
+echo $max_text >> test.csv
+echo $min_text >> test.csv
+#################################################
+for line in `cat test.csv`
+do
+	i=0
+	print_line=""
+	for value in $(echo $line | tr "," "\n")
+	do
+		check_val=`echo $value | grep -P '[^-0-9]' -o  | wc -c`
+		if [ $check_val -eq "0" ]; then
+			average=AVERAGES[$(( $i ))]
+			if (( value > average )); then
+				print_line+="${green}"$value"\t"
+			elif ((value < average)); then
+				print_line+="${red}"$value"\t"
+			else
+				print_line+="${blue}"$value"\t"
+			fi
+		else
+			print_line+="${reset}"$value"\t"
+			continue
+		fi
+		let i=i+1
+	done
+	printf $print_line
+	printf "\n"
+done
+
+printf "${reset}Files Failed to Compute:"'\n'
+
+for file_name in "${FAILED[@]}"
+do
+	printf "${red}"$file_name'\n'${reset}
+done
+
+echo "Number of passed computations $(( ${#FILES_ARRAY[@]} - ${#FAILED[@]} ))"
+
+echo "log file : "
+cat $LOG_FILE
